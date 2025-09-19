@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -101,6 +102,10 @@ func validateOAPIRequest(r *http.Request, options Options) (int, error) {
 	// pain
 	route, pathParams, err := options.router.FindRoute(r)
 	if err != nil {
+		slog.ErrorContext(r.Context(), "error finding route",
+			slog.Any("path", r.URL.Path),
+			slog.Any("method", r.Method),
+			slog.String("error", err.Error()))
 		return http.StatusBadRequest, err
 	}
 
@@ -120,12 +125,14 @@ func validateOAPIRequest(r *http.Request, options Options) (int, error) {
 		}
 
 		if err := openapi3filter.ValidateSecurityRequirements(r.Context(), reqValidation, *security); err != nil {
+			slog.ErrorContext(r.Context(), "security validation error", slog.String("error", err.Error()))
 			return http.StatusUnauthorized, err
 		}
 	}
 
 	// Validate the rest of the request
 	if err := openapi3filter.ValidateRequest(r.Context(), reqValidation); err != nil {
+		slog.ErrorContext(r.Context(), "request validation error", slog.Any("error", err))
 		reqError := &openapi3filter.RequestError{}
 		secError := &openapi3filter.SecurityRequirementsError{}
 		otherErrr := &openapi3.MultiError{}
@@ -133,6 +140,7 @@ func validateOAPIRequest(r *http.Request, options Options) (int, error) {
 		switch {
 		case errors.As(err, &reqError):
 			// We've got a bad request
+			slog.ErrorContext(r.Context(), "bad request", slog.String("error", err.Error()))
 			// Split up the verbose error by lines and return the first one
 			// openapi errors seem to be multi-line with a decent message on the first
 			errorLines := strings.Split(err.Error(), "\n")
@@ -141,6 +149,7 @@ func validateOAPIRequest(r *http.Request, options Options) (int, error) {
 			return http.StatusUnauthorized, err
 		case errors.As(err, &otherErrr):
 			// This case occurs when options.Options.MultiError is true.
+			slog.ErrorContext(r.Context(), "multi error", slog.Any("error", err))
 			return http.StatusBadRequest, err
 		default:
 			// Shouldn't happen too much
